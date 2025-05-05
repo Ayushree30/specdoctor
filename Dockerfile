@@ -12,7 +12,7 @@ RUN apt update \
 # Install specdoctor, it takes about 1 hour
 WORKDIR "/root"
 
-RUN git clone https://github.com/compsec-snu/specdoctor.git \
+RUN git clone https://github.com/Ayushree30/specdoctor.git \
  && cd specdoctor \
  && echo "y" | ./setup.sh
 
