@@ -216,16 +216,22 @@ class Preprocessor:
 
     def extract_block(self, prg: str, block: str) -> str:
         """Extract block from assembly file"""
-        # Try both with .S extension and without
-        path = f'{prg}.S'
-        if not os.path.exists(path):
-            path = prg  # Try without extension
-            if not os.path.exists(path):
-                print(f'[DEBUG] Neither {prg}.S nor {prg} exists')
-                raise FileNotFoundError(f'File not found: {prg}')
+        # Try both with .S and .du.S extensions
+        paths_to_try = [f'{prg}.S', f'{prg}.du.S', prg]
         
-        print(f'[DEBUG] Reading file: {path}')
-        with open(path, 'r') as fd:
+        found_path = None
+        for path in paths_to_try:
+            if os.path.exists(path):
+                found_path = path
+                break
+                
+        if not found_path:
+            paths_str = ', '.join(paths_to_try)
+            print(f'[DEBUG] extract_block: None of the following files exist: {paths_str}')
+            raise FileNotFoundError(f"Missing expected files: tried {paths_str}")
+        
+        print(f'[DEBUG] extract_block: Reading file: {found_path}')
+        with open(found_path, 'r') as fd:
             lines = fd.readlines()
         
         pattern = re.compile(f'^{block}:.*')
