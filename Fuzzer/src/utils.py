@@ -237,6 +237,10 @@ class Preprocessor:
         with open(f'{ret}.S', 'r') as fd:
             lines = fd.readlines()
 
+        # Ensure encoding.h is included at the top
+        if not any('#include "encoding.h"' in line for line in lines):
+            lines.insert(0, '#include "encoding.h"\n\n')
+
         # Find the insertion point for the assembly code
         for i, line in enumerate(lines):
             if re.match('^transient:.*', line):
@@ -287,8 +291,11 @@ class Preprocessor:
 
     def compile(self, prg: str, atk: str, com: str, ent: int,
                 isa=0, spdoc=0) -> Optional[str]:
+        # Convert paths to relative paths from Template directory
+        rel_prg = os.path.relpath(prg, self.template)
+        
         flag = f'-C {self.template}'
-        cmd = f'make PROGRAM=$PWD/{prg} ' + \
+        cmd = f'make PROGRAM={rel_prg} ' + \
               f'TARGET={self.target} ' + \
               f'ATTACK={atk} COMMIT={com} ENTROPY={ent} ' + \
               f'ISA={isa} ' + \
@@ -299,6 +306,7 @@ class Preprocessor:
         print(f'[DEBUG] Current working directory: {os.getcwd()}')
         print(f'[DEBUG] Template directory: {self.template}')
         print(f'[DEBUG] Program path: {prg}')
+        print(f'[DEBUG] Relative program path: {rel_prg}')
         
         # Check if Template directory exists
         if not os.path.exists(self.template):
@@ -311,6 +319,18 @@ class Preprocessor:
             print(f'[ERROR] Source file does not exist: {source_file}')
             return None
             
+        # Check if include directory exists
+        inc_dir = os.path.join(self.template, 'inc')
+        if not os.path.exists(inc_dir):
+            print(f'[ERROR] Include directory does not exist: {inc_dir}')
+            return None
+            
+        # Check if encoding.h exists
+        encoding_h = os.path.join(inc_dir, 'encoding.h')
+        if not os.path.exists(encoding_h):
+            print(f'[ERROR] encoding.h not found: {encoding_h}')
+            return None
+        
         # Run make with stderr redirected to stdout to capture all output
         compile_output = os.popen(cmd + ' 2>&1').read()
         print(f'[DEBUG] Compilation output:\n{compile_output}')
@@ -326,7 +346,7 @@ class Preprocessor:
         else:
             print(f'[ERROR] Binary file not generated: {binary}')
             # Try to get more detailed error information
-            error_cmd = f'riscv64-unknown-elf-gcc -v {source_file} 2>&1'
+            error_cmd = f'riscv64-unknown-elf-gcc -v -I{inc_dir} {source_file} 2>&1'
             error_output = os.popen(error_cmd).read()
             print(f'[DEBUG] Detailed compilation error:\n{error_output}')
             return None
