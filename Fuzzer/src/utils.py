@@ -294,44 +294,51 @@ class Preprocessor:
         # Convert paths to relative paths from Template directory
         rel_prg = os.path.relpath(prg, self.template)
         
+        # First check if all required files and directories exist
+        inc_dir = os.path.join(self.template, 'inc')
+        src_dir = os.path.join(self.template, 'src')
+        link_dir = os.path.join(self.template, 'link')
+        source_file = f'{prg}.S'
+        
+        print(f'[DEBUG] Checking required paths:')
+        print(f'  Template dir: {self.template}')
+        print(f'  Include dir: {inc_dir}')
+        print(f'  Source dir: {src_dir}')
+        print(f'  Link dir: {link_dir}')
+        print(f'  Source file: {source_file}')
+        
+        for path in [self.template, inc_dir, src_dir, link_dir, source_file]:
+            if not os.path.exists(path):
+                print(f'[ERROR] Required path does not exist: {path}')
+                return None
+        
+        # Check source file content
+        try:
+            with open(source_file, 'r') as f:
+                content = f.read()
+                print(f'[DEBUG] Source file first 200 chars:\n{content[:200]}...')
+        except Exception as e:
+            print(f'[ERROR] Failed to read source file: {str(e)}')
+            return None
+        
+        # Get list of source files
+        src_files = ' '.join([os.path.join(src_dir, f) for f in os.listdir(src_dir) if f.endswith('.c')])
+        
+        # Construct make command with explicit flags
         flag = f'-C {self.template}'
         cmd = f'make PROGRAM={rel_prg} ' + \
               f'TARGET={self.target} ' + \
               f'ATTACK={atk} COMMIT={com} ENTROPY={ent} ' + \
               f'ISA={isa} ' + \
               f'SPDOC={spdoc} ' + \
+              f'CFLAGS="-mcmodel=medany -ffreestanding -fvisibility=hidden -fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 -std=gnu99 -O0 -g" ' + \
+              f'LDFLAGS="-static -nostdlib -nostartfiles" ' + \
               f'{flag}'
         
         print(f'[DEBUG] Running compilation command: {cmd}')
         print(f'[DEBUG] Current working directory: {os.getcwd()}')
-        print(f'[DEBUG] Template directory: {self.template}')
-        print(f'[DEBUG] Program path: {prg}')
-        print(f'[DEBUG] Relative program path: {rel_prg}')
         
-        # Check if Template directory exists
-        if not os.path.exists(self.template):
-            print(f'[ERROR] Template directory does not exist: {self.template}')
-            return None
-            
-        # Check if source file exists
-        source_file = f'{prg}.S'
-        if not os.path.exists(source_file):
-            print(f'[ERROR] Source file does not exist: {source_file}')
-            return None
-            
-        # Check if include directory exists
-        inc_dir = os.path.join(self.template, 'inc')
-        if not os.path.exists(inc_dir):
-            print(f'[ERROR] Include directory does not exist: {inc_dir}')
-            return None
-            
-        # Check if encoding.h exists
-        encoding_h = os.path.join(inc_dir, 'encoding.h')
-        if not os.path.exists(encoding_h):
-            print(f'[ERROR] encoding.h not found: {encoding_h}')
-            return None
-        
-        # Run make with stderr redirected to stdout to capture all output
+        # Run make with detailed output
         compile_output = os.popen(cmd + ' 2>&1').read()
         print(f'[DEBUG] Compilation output:\n{compile_output}')
 
@@ -342,13 +349,28 @@ class Preprocessor:
             if self.target == 'Nutshell' and not os.path.isfile(image):
                 print(f'[ERROR] Image file not found for Nutshell: {image}')
                 return None
+            print(f'[DEBUG] Successfully generated binary: {binary}')
             return binary
         else:
             print(f'[ERROR] Binary file not generated: {binary}')
-            # Try to get more detailed error information
-            error_cmd = f'riscv64-unknown-elf-gcc -v -I{inc_dir} {source_file} 2>&1'
-            error_output = os.popen(error_cmd).read()
-            print(f'[DEBUG] Detailed compilation error:\n{error_output}')
+            
+            # Try direct compilation for more error info
+            gcc_cmd = (f'riscv64-unknown-elf-gcc -v '
+                      f'-mcmodel=medany -ffreestanding -fvisibility=hidden '
+                      f'-fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 '
+                      f'-std=gnu99 -O0 -g -static -nostdlib -nostartfiles '
+                      f'-I{inc_dir} -T{link_dir}/link.ld '
+                      f'{source_file} {src_files} -o {binary} 2>&1')
+            print(f'[DEBUG] Trying direct compilation: {gcc_cmd}')
+            error_output = os.popen(gcc_cmd).read()
+            print(f'[DEBUG] Direct compilation output:\n{error_output}')
+            
+            # Also try preprocessing only
+            preproc_cmd = f'riscv64-unknown-elf-gcc -E -I{inc_dir} {source_file} 2>&1'
+            print(f'[DEBUG] Trying preprocessing: {preproc_cmd}')
+            preproc_output = os.popen(preproc_cmd).read()
+            print(f'[DEBUG] Preprocessing output:\n{preproc_output}')
+            
             return None
 
     def clean(self, prg: str):
