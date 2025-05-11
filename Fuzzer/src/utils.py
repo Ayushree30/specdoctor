@@ -325,6 +325,16 @@ class Preprocessor:
             # Get list of source files
             src_files = ' '.join([os.path.join(src_dir, f) for f in os.listdir(src_dir) if f.endswith('.c')])
             
+            # Check linker script
+            linker_script = os.path.join(link_dir, 'link.ld')
+            try:
+                with open(linker_script, 'r') as f:
+                    linker_content = f.read()
+                    print(f'[DEBUG] Linker script preview:\n{linker_content[:200]}...')
+            except Exception as e:
+                print(f'[ERROR] Failed to read linker script: {str(e)}')
+                return None
+            
             # Construct make command with explicit flags
             flag = f'-C {self.template}'
             cmd = f'make PROGRAM={rel_prg} ' + \
@@ -333,7 +343,7 @@ class Preprocessor:
                   f'ISA={isa} ' + \
                   f'SPDOC={spdoc} ' + \
                   f'CFLAGS="-mcmodel=medany -ffreestanding -fvisibility=hidden -fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 -std=gnu99 -O0 -g" ' + \
-                  f'LDFLAGS="-static -nostdlib -nostartfiles" ' + \
+                  f'LDFLAGS="-static -nostdlib -nostartfiles -Wl,--build-id=none" ' + \
                   f'{flag}'
             
             print(f'[DEBUG] Running compilation command: {cmd}')
@@ -350,12 +360,19 @@ class Preprocessor:
                 if self.target == 'Nutshell' and not os.path.isfile(image):
                     print(f'[ERROR] Image file not found for Nutshell: {image}')
                     return None
-                print(f'[DEBUG] Successfully generated binary: {binary}')
-                
-                # Check binary size
+                    
+                # Check binary size and validity
                 binary_size = os.path.getsize(binary)
                 print(f'[DEBUG] Binary size: {binary_size} bytes')
                 
+                # Check ELF validity
+                readelf_cmd = f'riscv64-unknown-elf-readelf -h {binary}'
+                readelf_output = os.popen(readelf_cmd).read()
+                if 'ELF64' not in readelf_output:
+                    print(f'[ERROR] Invalid ELF file generated')
+                    return None
+                    
+                print(f'[DEBUG] Successfully generated binary: {binary}')
                 return binary
             else:
                 print(f'[ERROR] Binary file not generated: {binary}')
@@ -365,6 +382,7 @@ class Preprocessor:
                           f'-mcmodel=medany -ffreestanding -fvisibility=hidden '
                           f'-fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 '
                           f'-std=gnu99 -O0 -g -static -nostdlib -nostartfiles '
+                          f'-Wl,--build-id=none '  # Avoid build ID section
                           f'-I{inc_dir} -T{link_dir}/link.ld '
                           f'{source_file} {src_files} -o {binary} 2>&1')
                 print(f'[DEBUG] Trying direct compilation: {gcc_cmd}')
@@ -408,16 +426,7 @@ class Simulator:
     def runRTL(self, binary: str, log: str, recv=False, debug=False) -> int:
         timing = '-t' if recv else ''
 
-        if self.target == 'Boom':
-            debug = f'-x 70000 --vcd={log.rsplit(".", 1)[0]}.vcd' if debug else '' # TODO: 70000?
-            cmd = f'{self.rsim} --seed=0 --verbose {timing} {debug} {binary}'
-        elif self.target == 'Nutshell':
-            image = binary.split('.riscv')[0] + '.bin'
-            debug = f'-d {log.rsplit(".", 1)[0]}.vcd' if debug else ''
-            cmd = f'{self.rsim} -s 0 -b 0 -e 0 {timing} {debug} -i {image}'
-
-        print(f'[DEBUG] Running RTL simulation command: {cmd}')
-        print(f'[DEBUG] Current working directory: {os.getcwd()}')
+        print(f'[DEBUG] Validating binary: {binary}')
         
         # Check if simulator exists
         if not os.path.exists(self.rsim):
@@ -429,23 +438,58 @@ class Simulator:
             print(f'[ERROR] Binary not found: {binary}')
             return -1
             
+        # Get file size
+        binary_size = os.path.getsize(binary)
+        print(f'[DEBUG] Binary file size: {binary_size} bytes')
+        
         # Check ELF file validity
         try:
+            # Check ELF header
             readelf_cmd = f'riscv64-unknown-elf-readelf -h {binary}'
             readelf_output = os.popen(readelf_cmd).read()
             print(f'[DEBUG] ELF header info:\n{readelf_output}')
             
-            # Get program headers to check sizes
+            # Check program headers
             readelf_cmd = f'riscv64-unknown-elf-readelf -l {binary}'
             readelf_output = os.popen(readelf_cmd).read()
             print(f'[DEBUG] Program headers:\n{readelf_output}')
             
+            # Parse program headers to check sizes
             if 'LOAD' not in readelf_output:
                 print(f'[ERROR] No loadable segments found in binary')
                 return -1
+                
+            # Extract segment info using objdump
+            objdump_cmd = f'riscv64-unknown-elf-objdump -h {binary}'
+            objdump_output = os.popen(objdump_cmd).read()
+            print(f'[DEBUG] Section headers:\n{objdump_output}')
+            
+            # Check for common issues
+            if binary_size < 1024:  # Suspiciously small
+                print(f'[WARNING] Binary file seems too small: {binary_size} bytes')
+            
+            # Try to fix alignment if needed
+            objcopy_cmd = f'riscv64-unknown-elf-objcopy --set-section-alignment .text=16 {binary} {binary}.aligned'
+            os.system(objcopy_cmd)
+            if os.path.exists(f'{binary}.aligned'):
+                print(f'[DEBUG] Created aligned binary: {binary}.aligned')
+                binary = f'{binary}.aligned'
+            
         except Exception as e:
             print(f'[ERROR] Failed to check ELF file: {str(e)}')
             return -1
+
+        # Construct RTL simulation command
+        if self.target == 'Boom':
+            debug = f'-x 70000 --vcd={log.rsplit(".", 1)[0]}.vcd' if debug else '' # TODO: 70000?
+            cmd = f'{self.rsim} --seed=0 --verbose {timing} {debug} {binary}'
+        elif self.target == 'Nutshell':
+            image = binary.split('.riscv')[0] + '.bin'
+            debug = f'-d {log.rsplit(".", 1)[0]}.vcd' if debug else ''
+            cmd = f'{self.rsim} -s 0 -b 0 -e 0 {timing} {debug} -i {image}'
+
+        print(f'[DEBUG] Running RTL simulation command: {cmd}')
+        print(f'[DEBUG] Current working directory: {os.getcwd()}')
 
         try:
             p = Popen([i for i in cmd.split(' ') if i != ''],
@@ -466,6 +510,11 @@ class Simulator:
 
             ret = p.poll()
             print(f'[DEBUG] RTL simulation return code: {ret}')
+            
+            # Clean up aligned binary if it was created
+            if os.path.exists(f'{binary}.aligned'):
+                os.remove(f'{binary}.aligned')
+                
             return ret
             
         except Exception as e:
