@@ -88,7 +88,8 @@ class Preprocessor:
     def __init__(self, target: str, output: str, dsize=1024):
         self.target = target
         self.output = output
-        self.template = output + '/Template'
+        # Use absolute path for template directory
+        self.template = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Template'))
 
         self.rand = random.Random()
         self.randLock = BoundedSemaphore(1)
@@ -96,8 +97,9 @@ class Preprocessor:
         assert dsize % 16 == 0, f'Invalid dsize: {dsize}'
         self.dsize = dsize
 
-        os.system(f'rm -rf $PWD/{self.template}')
-        os.system(f'cp -r $PWD/Template $PWD/{self.template}')
+        # Don't copy Template directory to output
+        if not os.path.exists(self.output):
+            os.makedirs(self.output)
 
     def embed_attack(self, pfx: str, prps: List[str], funcs: str,
                      asm: str, ent: int, tid: int) -> str:
