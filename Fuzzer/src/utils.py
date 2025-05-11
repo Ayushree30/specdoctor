@@ -214,13 +214,25 @@ class Preprocessor:
             return False, ''
 
     def embed_sec(self, tid: int, tprg: str, asm: str, sd: int, tid2: int) -> str:
+        # Ensure output directory exists
+        os.makedirs(self.output, exist_ok=True)
+        
         # Extract base name without extension
         base = os.path.splitext(tprg)[0]
         ret = f'{self.output}/.t{tid}_input_{tid2}'
+        
+        # Use entry.S as the template file
+        template_file = os.path.join(self.template, 'entry.S')
+        
+        print(f'[DEBUG] Creating file: {ret}.S')
+        print(f'[DEBUG] Using template: {template_file}')
+        
+        # Check if template file exists
+        if not os.path.exists(template_file):
+            raise FileNotFoundError(f'Template file not found: {template_file}')
 
         # Copy template file with .S extension
-        shutil.copyfile(f'{self.template}/Template/Template.S',
-                       f'{ret}.S')
+        shutil.copyfile(template_file, f'{ret}.S')
 
         with open(f'{ret}.S', 'r') as fd:
             lines = fd.readlines()
@@ -231,10 +243,14 @@ class Preprocessor:
                 lines[i] = asm
                 break
 
-        # Write the modified assembly with .du.S extension for thread3
+        # Write the modified assembly with both .S and .du.S extensions
+        with open(f'{ret}.S', 'w') as fd:
+            fd.write(''.join(lines))
+            
         with open(f'{ret}.du.S', 'w') as fd:
             fd.write(''.join(lines))
 
+        print(f'[DEBUG] Successfully created files: {ret}.S and {ret}.du.S')
         return ret
 
     def extract_block(self, prg: str, name: str) -> str:
