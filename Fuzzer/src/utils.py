@@ -243,13 +243,16 @@ class Preprocessor:
     def compile(self, prg: str, atk: str, com: str, ent: int,
                 isa=0, spdoc=0) -> Optional[str]:
         flag = f'-C {self.template}'
-        mute = '> /dev/null 2>&1'
-        os.system(f'make PROGRAM=$PWD/{prg} ' +
-                  f'TARGET={self.target} ' +
-                  f'ATTACK={atk} COMMIT={com} ENTROPY={ent} ' +
-                  f'ISA={isa} ' +
-                  f'SPDOC={spdoc} ' +
-                  f'{flag} {mute}')
+        cmd = f'make PROGRAM=$PWD/{prg} ' + \
+              f'TARGET={self.target} ' + \
+              f'ATTACK={atk} COMMIT={com} ENTROPY={ent} ' + \
+              f'ISA={isa} ' + \
+              f'SPDOC={spdoc} ' + \
+              f'{flag}'
+        
+        print(f'[DEBUG] Running compilation command: {cmd}')
+        compile_output = os.popen(cmd + ' 2>&1').read()
+        print(f'[DEBUG] Compilation output:\n{compile_output}')
 
         binary = f'{prg}.riscv'
         image = f'{prg}.bin' # Needed for Nutshell
