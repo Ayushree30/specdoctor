@@ -397,20 +397,41 @@ class Simulator:
             debug = f'-d {log.rsplit(".", 1)[0]}.vcd' if debug else ''
             cmd = f'{self.rsim} -s 0 -b 0 -e 0 {timing} {debug} -i {image}'
 
-        p = Popen([i for i in cmd.split(' ') if i != ''],
-                  stderr=PIPE, stdout=PIPE)
-        timer = Timer(600, p.kill)
+        print(f'[DEBUG] Running RTL simulation command: {cmd}')
+        print(f'[DEBUG] Current working directory: {os.getcwd()}')
+        
+        # Check if simulator exists
+        if not os.path.exists(self.rsim):
+            print(f'[ERROR] RTL simulator not found: {self.rsim}')
+            return -1
+            
+        # Check if binary exists
+        if not os.path.exists(binary):
+            print(f'[ERROR] Binary not found: {binary}')
+            return -1
+
         try:
-            timer.start()
-            _, stderr = p.communicate()
-        finally:
-            timer.cancel()
+            p = Popen([i for i in cmd.split(' ') if i != ''],
+                    stderr=PIPE, stdout=PIPE)
+            timer = Timer(600, p.kill)
+            try:
+                timer.start()
+                stdout, stderr = p.communicate()
+                print(f'[DEBUG] RTL simulation stdout:\n{stdout.decode("utf-8")}')
+                print(f'[DEBUG] RTL simulation stderr:\n{stderr.decode("utf-8")}')
+            finally:
+                timer.cancel()
 
-        with open(log, 'w') as fd:
-            fd.write(stderr.decode('utf-8'))
+            with open(log, 'w') as fd:
+                fd.write(stderr.decode('utf-8'))
 
-        ret = p.poll()
-        return ret
+            ret = p.poll()
+            print(f'[DEBUG] RTL simulation return code: {ret}')
+            return ret
+            
+        except Exception as e:
+            print(f'[ERROR] Failed to run RTL simulation: {str(e)}')
+            return -1
 
     # Run ISA simulation to obtain cause message
     def runISA(self, binary: str) -> str:
