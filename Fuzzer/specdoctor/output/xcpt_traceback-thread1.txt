@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/root/specdoctor/Fuzzer/src/fuzz.py", line 49, in _impl
+    method(self, *args, **kwargs)
+  File "/root/specdoctor/Fuzzer/src/fuzz.py", line 425, in thread1
+    pfx, prps, funcs, asm = get_codes(prg, False)
+  File "/root/specdoctor/Fuzzer/src/fuzz.py", line 401, in get_codes
+    pfx = get_pfx(prg)
+  File "/root/specdoctor/Fuzzer/src/fuzz.py", line 390, in <lambda>
+    else (lambda x: self.pre.extract_block(x, PFX)))
+  File "/root/specdoctor/Fuzzer/src/utils.py", line 222, in extract_block
+    raise FileNotFoundError(f"Missing expected file: {path}")
+FileNotFoundError: Missing expected file: specdoctor/output/triggers/t3_U2S_ATTACKER_4141403670_MEM_BR_0x80600034_0x806000a4_bge_110.du.S

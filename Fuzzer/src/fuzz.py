@@ -405,6 +405,7 @@ class SpecDoctorFuzzer:
                        else (lambda x: self.pre.extract_block(x, TC)))
 
             pfx = get_pfx(prg)
+            print(f"[DEBUG] get_codes: trying to open {prg} with prefix extraction (expected file: {pfx}.du.S)")
 
             prps = []
             for i in range(self.num_prp):
