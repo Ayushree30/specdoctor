@@ -73,8 +73,26 @@ class Generator:
 
     def mutate_tc(self, name: str, seed: List[str],
                   prps: List[List[str]], tlabel: str) -> (List[str], str):
-        testcase = self.read_tc(seed)
-        prp_tcs = [self.read_tc(prp) for prp in prps]
+        # Handle empty input
+        if not seed or not any(line.strip() for line in seed):
+            print(f'[DEBUG] Empty seed input in mutate_tc')
+            # Create a minimal valid test case
+            testcase = TestCaseDAG(name)
+            testcase.BBs = (testcase.entry, testcase.exit)
+        else:
+            testcase = self.read_tc(seed)
+
+        # Handle empty property test cases
+        prp_tcs = []
+        for prp in prps:
+            if not prp or not any(line.strip() for line in prp):
+                print(f'[DEBUG] Empty property test case in mutate_tc')
+                # Create a minimal valid test case
+                prp_tc = TestCaseDAG('prp')
+                prp_tc.BBs = (prp_tc.entry, prp_tc.exit)
+                prp_tcs.append(prp_tc)
+            else:
+                prp_tcs.append(self.read_tc(prp))
 
         self.mutateTC.run_on_dag(testcase, prp_tcs, tlabel)
         for prp in prp_tcs:
@@ -120,6 +138,14 @@ class Generator:
         excptMsg = 'Misformatted testcase\n' + ''.join(lines)
         lTmps = []
 
+        # Handle empty input
+        if not lines or not any(line.strip() for line in lines):
+            print(f'[DEBUG] Empty test case input')
+            # Create a minimal valid test case
+            testcase = TestCaseDAG('tc')
+            testcase.BBs = (testcase.entry, testcase.exit)
+            return testcase
+
         i = 0
         while i < len(lines) - 1: # Handle last empty
             match = re.match('(.*):.*', lines[i])
@@ -137,55 +163,73 @@ class Generator:
 
                 i = j
             else:
+                print(f'[DEBUG] Invalid line format at line {i}: {lines[i]}')
                 raise Exception(excptMsg)
 
-        tmp = lTmps.pop(0)
-        testcase = TestCaseDAG(tmp[0])
-        bb = None
-        scope = 'TC'
+        if not lTmps:
+            print(f'[DEBUG] No valid test case sections found')
+            # Create a minimal valid test case
+            testcase = TestCaseDAG('tc')
+            testcase.BBs = (testcase.entry, testcase.exit)
+            return testcase
 
-        while True:
-            try: label, asm = lTmps.pop(0)
-            except:
-                if scope != 'TC':
-                    raise Exception(excptMsg)
-                break
+        try:
+            tmp = lTmps.pop(0)
+            testcase = TestCaseDAG(tmp[0])
+            bb = None
+            scope = 'TC'
 
-            if scope == 'TC' and label == f'{testcase.name}.entry':
-                bb = testcase.entry
-                testcase.BBs = testcase.BBs + (bb,)
-                scope = 'BB'
-            elif scope == 'BB':
-                bmatch = re.match(f'{bb.label}.(l[0-9]+)', label)
-                tmatch = re.match(f'{testcase.name}.(bb[0-9]+)', label)
-                if bmatch:
-                    wlabel = f'{bb.label}.{bmatch.group(1)}'
+            while True:
+                try: 
+                    label, asm = lTmps.pop(0)
+                except IndexError:
+                    if scope != 'TC':
+                        print(f'[DEBUG] Unexpected end of test case in scope {scope}')
+                        raise Exception(excptMsg)
+                    break
 
-                    word = self.generator.read_word(wlabel, asm)
-                    bb.append_non_terminator(word)
-
-                elif tmatch:
-                    word = bb.words.pop()
-                    bb.append_terminator(word)
-
-                    blabel = f'{testcase.name}.{tmatch.group(1)}'
-                    bb = BasicBlock(blabel)
-
+                if scope == 'TC' and label == f'{testcase.name}.entry':
+                    bb = testcase.entry
                     testcase.BBs = testcase.BBs + (bb,)
-                elif label == f'{testcase.name}.exit':
-                    testcase.BBs = testcase.BBs + (testcase.exit,)
-                    scope = 'TC'
+                    scope = 'BB'
+                elif scope == 'BB':
+                    bmatch = re.match(f'{bb.label}.(l[0-9]+)', label)
+                    tmatch = re.match(f'{testcase.name}.(bb[0-9]+)', label)
+                    if bmatch:
+                        wlabel = f'{bb.label}.{bmatch.group(1)}'
+
+                        word = self.generator.read_word(wlabel, asm)
+                        bb.append_non_terminator(word)
+
+                    elif tmatch:
+                        if bb.words:  # Only pop if there are words
+                            word = bb.words.pop()
+                            bb.append_terminator(word)
+
+                        blabel = f'{testcase.name}.{tmatch.group(1)}'
+                        bb = BasicBlock(blabel)
+
+                        testcase.BBs = testcase.BBs + (bb,)
+                    elif label == f'{testcase.name}.exit':
+                        testcase.BBs = testcase.BBs + (testcase.exit,)
+                        scope = 'TC'
+                    else:
+                        print(f'[DEBUG] Invalid label in BB scope: {label}')
+                        raise Exception(excptMsg)
+
                 else:
+                    print(f'[DEBUG] Invalid scope: {scope}')
                     raise Exception(excptMsg)
 
-            else:
-                raise Exception(excptMsg)
+            bbs = [bb for bb in testcase]
+            for i, bb in enumerate(testcase):
+                bb.successors = bbs[i+1:]
 
-        bbs = [bb for bb in testcase]
-        for i, bb in enumerate(testcase):
-            bb.successors = bbs[i+1:]
-
-        return testcase
+            return testcase
+        except Exception as e:
+            print(f'[DEBUG] Error processing test case: {str(e)}')
+            print(f'[DEBUG] Test case content:\n{lines}')
+            raise
 
 
 
