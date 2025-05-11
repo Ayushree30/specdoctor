@@ -300,77 +300,96 @@ class Preprocessor:
         link_dir = os.path.join(self.template, 'link')
         source_file = f'{prg}.S'
         
-        print(f'[DEBUG] Checking required paths:')
-        print(f'  Template dir: {self.template}')
-        print(f'  Include dir: {inc_dir}')
-        print(f'  Source dir: {src_dir}')
-        print(f'  Link dir: {link_dir}')
-        print(f'  Source file: {source_file}')
-        
-        for path in [self.template, inc_dir, src_dir, link_dir, source_file]:
-            if not os.path.exists(path):
-                print(f'[ERROR] Required path does not exist: {path}')
-                return None
-        
-        # Check source file content
         try:
-            with open(source_file, 'r') as f:
-                content = f.read()
-                print(f'[DEBUG] Source file first 200 chars:\n{content[:200]}...')
-        except Exception as e:
-            print(f'[ERROR] Failed to read source file: {str(e)}')
-            return None
-        
-        # Get list of source files
-        src_files = ' '.join([os.path.join(src_dir, f) for f in os.listdir(src_dir) if f.endswith('.c')])
-        
-        # Construct make command with explicit flags
-        flag = f'-C {self.template}'
-        cmd = f'make PROGRAM={rel_prg} ' + \
-              f'TARGET={self.target} ' + \
-              f'ATTACK={atk} COMMIT={com} ENTROPY={ent} ' + \
-              f'ISA={isa} ' + \
-              f'SPDOC={spdoc} ' + \
-              f'CFLAGS="-mcmodel=medany -ffreestanding -fvisibility=hidden -fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 -std=gnu99 -O0 -g" ' + \
-              f'LDFLAGS="-static -nostdlib -nostartfiles" ' + \
-              f'{flag}'
-        
-        print(f'[DEBUG] Running compilation command: {cmd}')
-        print(f'[DEBUG] Current working directory: {os.getcwd()}')
-        
-        # Run make with detailed output
-        compile_output = os.popen(cmd + ' 2>&1').read()
-        print(f'[DEBUG] Compilation output:\n{compile_output}')
-
-        binary = f'{prg}.riscv'
-        image = f'{prg}.bin' # Needed for Nutshell
-
-        if os.path.isfile(binary):
-            if self.target == 'Nutshell' and not os.path.isfile(image):
-                print(f'[ERROR] Image file not found for Nutshell: {image}')
+            print(f'[DEBUG] Checking required paths:')
+            print(f'  Template dir: {self.template}')
+            print(f'  Include dir: {inc_dir}')
+            print(f'  Source dir: {src_dir}')
+            print(f'  Link dir: {link_dir}')
+            print(f'  Source file: {source_file}')
+            
+            for path in [self.template, inc_dir, src_dir, link_dir, source_file]:
+                if not os.path.exists(path):
+                    print(f'[ERROR] Required path does not exist: {path}')
+                    return None
+            
+            # Check source file content
+            try:
+                with open(source_file, 'r') as f:
+                    content = f.read(1000)  # Only read first 1000 chars
+                    print(f'[DEBUG] Source file preview:\n{content[:200]}...')
+            except Exception as e:
+                print(f'[ERROR] Failed to read source file: {str(e)}')
                 return None
-            print(f'[DEBUG] Successfully generated binary: {binary}')
-            return binary
-        else:
-            print(f'[ERROR] Binary file not generated: {binary}')
             
-            # Try direct compilation for more error info
-            gcc_cmd = (f'riscv64-unknown-elf-gcc -v '
-                      f'-mcmodel=medany -ffreestanding -fvisibility=hidden '
-                      f'-fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 '
-                      f'-std=gnu99 -O0 -g -static -nostdlib -nostartfiles '
-                      f'-I{inc_dir} -T{link_dir}/link.ld '
-                      f'{source_file} {src_files} -o {binary} 2>&1')
-            print(f'[DEBUG] Trying direct compilation: {gcc_cmd}')
-            error_output = os.popen(gcc_cmd).read()
-            print(f'[DEBUG] Direct compilation output:\n{error_output}')
+            # Get list of source files
+            src_files = ' '.join([os.path.join(src_dir, f) for f in os.listdir(src_dir) if f.endswith('.c')])
             
-            # Also try preprocessing only
-            preproc_cmd = f'riscv64-unknown-elf-gcc -E -I{inc_dir} {source_file} 2>&1'
-            print(f'[DEBUG] Trying preprocessing: {preproc_cmd}')
-            preproc_output = os.popen(preproc_cmd).read()
-            print(f'[DEBUG] Preprocessing output:\n{preproc_output}')
+            # Construct make command with explicit flags
+            flag = f'-C {self.template}'
+            cmd = f'make PROGRAM={rel_prg} ' + \
+                  f'TARGET={self.target} ' + \
+                  f'ATTACK={atk} COMMIT={com} ENTROPY={ent} ' + \
+                  f'ISA={isa} ' + \
+                  f'SPDOC={spdoc} ' + \
+                  f'CFLAGS="-mcmodel=medany -ffreestanding -fvisibility=hidden -fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 -std=gnu99 -O0 -g" ' + \
+                  f'LDFLAGS="-static -nostdlib -nostartfiles" ' + \
+                  f'{flag}'
             
+            print(f'[DEBUG] Running compilation command: {cmd}')
+            print(f'[DEBUG] Current working directory: {os.getcwd()}')
+            
+            # Run make with detailed output
+            compile_output = os.popen(cmd + ' 2>&1').read()
+            print(f'[DEBUG] Compilation output:\n{compile_output[:1000]}')  # Limit output size
+
+            binary = f'{prg}.riscv'
+            image = f'{prg}.bin' # Needed for Nutshell
+
+            if os.path.isfile(binary):
+                if self.target == 'Nutshell' and not os.path.isfile(image):
+                    print(f'[ERROR] Image file not found for Nutshell: {image}')
+                    return None
+                print(f'[DEBUG] Successfully generated binary: {binary}')
+                
+                # Check binary size
+                binary_size = os.path.getsize(binary)
+                print(f'[DEBUG] Binary size: {binary_size} bytes')
+                
+                return binary
+            else:
+                print(f'[ERROR] Binary file not generated: {binary}')
+                
+                # Try direct compilation for more error info
+                gcc_cmd = (f'riscv64-unknown-elf-gcc -v '
+                          f'-mcmodel=medany -ffreestanding -fvisibility=hidden '
+                          f'-fno-zero-initialized-in-bss -march=rv64g -mabi=lp64 '
+                          f'-std=gnu99 -O0 -g -static -nostdlib -nostartfiles '
+                          f'-I{inc_dir} -T{link_dir}/link.ld '
+                          f'{source_file} {src_files} -o {binary} 2>&1')
+                print(f'[DEBUG] Trying direct compilation: {gcc_cmd}')
+                try:
+                    error_output = os.popen(gcc_cmd).read()
+                    print(f'[DEBUG] Direct compilation output:\n{error_output[:1000]}')  # Limit output size
+                except IOError as e:
+                    print(f'[ERROR] Failed to capture compilation output: {str(e)}')
+                
+                # Also try preprocessing only
+                preproc_cmd = f'riscv64-unknown-elf-gcc -E -I{inc_dir} {source_file} 2>&1'
+                print(f'[DEBUG] Trying preprocessing: {preproc_cmd}')
+                try:
+                    preproc_output = os.popen(preproc_cmd).read()
+                    print(f'[DEBUG] Preprocessing output:\n{preproc_output[:1000]}')  # Limit output size
+                except IOError as e:
+                    print(f'[ERROR] Failed to capture preprocessing output: {str(e)}')
+                
+                return None
+                
+        except IOError as e:
+            print(f'[ERROR] IO error during compilation: {str(e)}')
+            return None
+        except Exception as e:
+            print(f'[ERROR] Unexpected error during compilation: {str(e)}')
             return None
 
     def clean(self, prg: str):
@@ -405,9 +424,27 @@ class Simulator:
             print(f'[ERROR] RTL simulator not found: {self.rsim}')
             return -1
             
-        # Check if binary exists
+        # Check if binary exists and is valid
         if not os.path.exists(binary):
             print(f'[ERROR] Binary not found: {binary}')
+            return -1
+            
+        # Check ELF file validity
+        try:
+            readelf_cmd = f'riscv64-unknown-elf-readelf -h {binary}'
+            readelf_output = os.popen(readelf_cmd).read()
+            print(f'[DEBUG] ELF header info:\n{readelf_output}')
+            
+            # Get program headers to check sizes
+            readelf_cmd = f'riscv64-unknown-elf-readelf -l {binary}'
+            readelf_output = os.popen(readelf_cmd).read()
+            print(f'[DEBUG] Program headers:\n{readelf_output}')
+            
+            if 'LOAD' not in readelf_output:
+                print(f'[ERROR] No loadable segments found in binary')
+                return -1
+        except Exception as e:
+            print(f'[ERROR] Failed to check ELF file: {str(e)}')
             return -1
 
         try:
@@ -417,13 +454,15 @@ class Simulator:
             try:
                 timer.start()
                 stdout, stderr = p.communicate()
-                print(f'[DEBUG] RTL simulation stdout:\n{stdout.decode("utf-8")}')
-                print(f'[DEBUG] RTL simulation stderr:\n{stderr.decode("utf-8")}')
+                stdout_str = stdout.decode('utf-8')
+                stderr_str = stderr.decode('utf-8')
+                print(f'[DEBUG] RTL simulation stdout:\n{stdout_str[:1000]}')  # Limit output size
+                print(f'[DEBUG] RTL simulation stderr:\n{stderr_str[:1000]}')  # Limit output size
             finally:
                 timer.cancel()
 
             with open(log, 'w') as fd:
-                fd.write(stderr.decode('utf-8'))
+                fd.write(stderr_str)
 
             ret = p.poll()
             print(f'[DEBUG] RTL simulation return code: {ret}')
