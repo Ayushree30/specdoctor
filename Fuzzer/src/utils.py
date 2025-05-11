@@ -87,9 +87,22 @@ class ROBLog:
 class Preprocessor:
     def __init__(self, target: str, output: str, dsize=1024):
         self.target = target
-        self.output = output
-        # Use absolute path for template directory
-        self.template = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Template'))
+        # Convert output path to absolute path
+        self.output = os.path.abspath(output)
+        
+        # Get the absolute path of the Template directory
+        fuzzer_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.template = os.path.join(fuzzer_dir, 'Template')
+        
+        print(f'[DEBUG] Initializing Preprocessor:')
+        print(f'[DEBUG] Target: {self.target}')
+        print(f'[DEBUG] Output directory: {self.output}')
+        print(f'[DEBUG] Template directory: {self.template}')
+        
+        # Ensure directories exist
+        os.makedirs(self.output, exist_ok=True)
+        if not os.path.exists(self.template):
+            raise FileNotFoundError(f'Template directory not found: {self.template}')
 
         self.rand = random.Random()
         self.randLock = BoundedSemaphore(1)
@@ -97,40 +110,54 @@ class Preprocessor:
         assert dsize % 16 == 0, f'Invalid dsize: {dsize}'
         self.dsize = dsize
 
-        # Don't copy Template directory to output
-        if not os.path.exists(self.output):
-            os.makedirs(self.output)
-
     def embed_attack(self, pfx: str, prps: List[str], funcs: str,
                      asm: str, ent: int, tid: int) -> str:
+        # Ensure output directory exists
+        os.makedirs(self.output, exist_ok=True)
+        
         ret = f'{self.output}/.t1_input_{tid}'
+        template_file = os.path.join(self.template, 'entry.S')
+        
+        print(f'[DEBUG] Creating file: {ret}.S')
+        print(f'[DEBUG] Using template: {template_file}')
+        
+        # Check if template file exists
+        if not os.path.exists(template_file):
+            raise FileNotFoundError(f'Template file not found: {template_file}')
 
         self.randLock.acquire()
         self.rand.seed(ent)
-        with open(f'{self.template}/entry.S', 'r') as fd:
-            lines = fd.readlines()
+        
+        try:
+            with open(template_file, 'r') as fd:
+                lines = fd.readlines()
 
-        with open(f'{ret}.S', 'w') as fd:
-            for line in lines:
-                fd.write(line)
+            with open(f'{ret}.S', 'w') as fd:
+                for line in lines:
+                    fd.write(line)
 
-                if re.match('^prefix:.*', line):
-                    fd.write(pfx)
-                elif re.match('^pre_attack[0-9]+:.*', line):
-                    prp = prps.pop(0)
-                    fd.write(prp)
-                elif re.match('^shared:.*', line):
-                    fd.write(funcs)
-                elif re.match('^attack:.*', line):
-                    fd.write(asm)
-                elif re.search('^data[0-9]+:.*', line):
-                    for i in range(self.dsize // (8 * 2)):
-                        r0 = self.rand.randint(0, 0xffffffffffffffff)
-                        r1 = self.rand.randint(0, 0xffffffffffffffff)
-                        fd.write(f'    .dword {hex(r0)}, {hex(r1)}\n')
+                    if re.match('^prefix:.*', line):
+                        fd.write(pfx)
+                    elif re.match('^pre_attack[0-9]+:.*', line):
+                        prp = prps.pop(0)
+                        fd.write(prp)
+                    elif re.match('^shared:.*', line):
+                        fd.write(funcs)
+                    elif re.match('^attack:.*', line):
+                        fd.write(asm)
+                    elif re.search('^data[0-9]+:.*', line):
+                        for i in range(self.dsize // (8 * 2)):
+                            r0 = self.rand.randint(0, 0xffffffffffffffff)
+                            r1 = self.rand.randint(0, 0xffffffffffffffff)
+                            fd.write(f'    .dword {hex(r0)}, {hex(r1)}\n')
 
-        self.rand.seed(time.time())
-        self.randLock.release()
+            print(f'[DEBUG] Successfully created file: {ret}.S')
+        except Exception as e:
+            print(f'[ERROR] Failed to create assembly file: {str(e)}')
+            raise e
+        finally:
+            self.rand.seed(time.time())
+            self.randLock.release()
 
         return ret
 
@@ -253,17 +280,39 @@ class Preprocessor:
               f'{flag}'
         
         print(f'[DEBUG] Running compilation command: {cmd}')
+        print(f'[DEBUG] Current working directory: {os.getcwd()}')
+        print(f'[DEBUG] Template directory: {self.template}')
+        print(f'[DEBUG] Program path: {prg}')
+        
+        # Check if Template directory exists
+        if not os.path.exists(self.template):
+            print(f'[ERROR] Template directory does not exist: {self.template}')
+            return None
+            
+        # Check if source file exists
+        source_file = f'{prg}.S'
+        if not os.path.exists(source_file):
+            print(f'[ERROR] Source file does not exist: {source_file}')
+            return None
+            
+        # Run make with stderr redirected to stdout to capture all output
         compile_output = os.popen(cmd + ' 2>&1').read()
         print(f'[DEBUG] Compilation output:\n{compile_output}')
 
         binary = f'{prg}.riscv'
         image = f'{prg}.bin' # Needed for Nutshell
 
-        if os.path.isfile(f'{binary}'):
-            if self.target == 'Nutshell' and not os.path.isfile(f'{image}'):
+        if os.path.isfile(binary):
+            if self.target == 'Nutshell' and not os.path.isfile(image):
+                print(f'[ERROR] Image file not found for Nutshell: {image}')
                 return None
             return binary
         else:
+            print(f'[ERROR] Binary file not generated: {binary}')
+            # Try to get more detailed error information
+            error_cmd = f'riscv64-unknown-elf-gcc -v {source_file} 2>&1'
+            error_output = os.popen(error_cmd).read()
+            print(f'[DEBUG] Detailed compilation error:\n{error_output}')
             return None
 
     def clean(self, prg: str):
