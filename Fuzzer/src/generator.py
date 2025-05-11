@@ -37,9 +37,9 @@ def rand(choices: List, freqs: List):
 # ===========================================
 class Generator:
     def __init__(self, isa: List, blocked: List, weights: Dict = {}):
-
         self.generator = InstGenerator(isa, blocked, weights)
-
+        self.tc_counter = 0  # Add counter for unique test case names
+        
         self.genDAG = GenerateDAGPass()
         self.fillTMN = FillTerminatorPass(self.generator)
         self.fillINST = FillInstructionPass(self.generator)
@@ -94,8 +94,12 @@ class Generator:
         assert not (prepare and tsx), \
             'Create_testcase with both prepare & tsx'
 
+        # Add counter to name to ensure uniqueness
+        unique_name = f"{name}_{self.tc_counter}"
+        self.tc_counter += 1
+
         # 1. Generate DAG (of basic blocks)
-        testcase = TestCaseDAG(name)
+        testcase = TestCaseDAG(unique_name)
         self.genDAG.run_on_dag(testcase)
 
         # 2. Connect basic blocks with cfg instructions

@@ -186,61 +186,61 @@ class Preprocessor:
         else:
             return False, ''
 
-    def embed_sec(self, thd: int, prg: str, asm: str,
-                  seed: Optional[int], tid: int) -> str:
+    def embed_sec(self, tid: int, tprg: str, asm: str, sd: int, tid2: int) -> str:
+        # Extract base name without extension
+        base = os.path.splitext(tprg)[0]
+        ret = f'{self.output}/.t{tid}_input_{tid2}'
 
-        if thd not in [3, 4, 5]:
-            raise Exception(f'embed_sec thread({thread}) not in 3, 4, 5')
-        ret = f'{self.output}/.t{thd}_input_{tid}'
+        # Copy template file with .S extension
+        shutil.copyfile(f'{self.template}/Template/Template.S',
+                       f'{ret}.S')
 
-        self.randLock.acquire()
-        if seed != None: self.rand.seed(seed)
-        with open(f'{prg}.S', 'r') as fd:
+        with open(f'{ret}.S', 'r') as fd:
             lines = fd.readlines()
 
-        pattern = '^transient:.*' if thd == 3 else '^receive:.*'
-        with open(f'{ret}.S', 'w') as fd:
-            for line in lines:
-                fd.write(line)
+        # Find the insertion point for the assembly code
+        for i, line in enumerate(lines):
+            if re.match('^transient:.*', line):
+                lines[i] = asm
+                break
 
-                if re.match(pattern, line):
-                    fd.write(asm)
-                elif seed != None and 'secret:' in line:
-                    for i in range(self.dsize // (8 * 2)):
-                        r0 = self.rand.randint(0, 0xffffffffffffffff)
-                        r1 = self.rand.randint(0, 0xffffffffffffffff)
-                        fd.write(f'    .dword {hex(r0)}, {hex(r1)}\n')
-
-        self.rand.seed(time.time())
-        self.randLock.release()
+        # Write the modified assembly with .du.S extension for thread3
+        with open(f'{ret}.du.S', 'w') as fd:
+            fd.write(''.join(lines))
 
         return ret
 
-    def extract_block(self, prg: str, block: str) -> str:
-        """Extract block from assembly file"""
-        # Try both with .S and .du.S extensions
-        paths_to_try = [f'{prg}.S', f'{prg}.du.S', prg]
+    def extract_block(self, prg: str, name: str) -> str:
+        # Try both .S and .du.S extensions
+        extensions = ['.S', '.du.S']
+        found = False
         
-        found_path = None
-        for path in paths_to_try:
+        for ext in extensions:
+            path = f'{prg}{ext}'
             if os.path.exists(path):
-                found_path = path
+                found = True
                 break
                 
-        if not found_path:
-            paths_str = ', '.join(paths_to_try)
-            print(f'[DEBUG] extract_block: None of the following files exist: {paths_str}')
-            raise FileNotFoundError(f"Missing expected files: tried {paths_str}")
-        
-        print(f'[DEBUG] extract_block: Reading file: {found_path}')
-        with open(found_path, 'r') as fd:
+        if not found:
+            raise FileNotFoundError(f'Neither {prg}.S nor {prg}.du.S exists')
+
+        with open(path, 'r') as fd:
             lines = fd.readlines()
-        
-        pattern = re.compile(f'^{block}:.*')
-        for i, line in enumerate(lines):
-            if pattern.match(line):
-                return ''.join(lines[i:])
-        return ''
+
+        ret = []
+        scope = 'NONE'
+        for line in lines:
+            if scope == 'NONE':
+                if re.match(f'^{name}:.*', line):
+                    ret.append(line)
+                    scope = 'BLOCK'
+            elif scope == 'BLOCK':
+                if re.match('^[a-zA-Z].*:.*', line):
+                    if not re.match(f'^{name}\..*:.*', line):
+                        break
+                ret.append(line)
+
+        return ''.join(ret)
 
     def compile(self, prg: str, atk: str, com: str, ent: int,
                 isa=0, spdoc=0) -> Optional[str]:
