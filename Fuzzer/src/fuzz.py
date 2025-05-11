@@ -138,9 +138,15 @@ class SpecDoctorFuzzer:
         self.prev_dinputs = queue.Queue()
         self.prev_recvs = queue.Queue()
         if os.path.isdir(self.output):
-            for i in os.listdir(self.triggers): self.prev_trgs.put(i[:-2])
-            for i in os.listdir(self.dinput): self.prev_dinputs.put(i[:-2])
-            for i in os.listdir(self.receive): self.prev_recvs.put(i[:-2])
+            for i in os.listdir(self.triggers):
+                if i.endswith('.S'):
+                    self.prev_trgs.put(i[:-2])
+            for i in os.listdir(self.dinput):
+                if i.endswith('.S'):
+                    self.prev_dinputs.put(i[:-2])
+            for i in os.listdir(self.receive):
+                if i.endswith('.S'):
+                    self.prev_recvs.put(i[:-2])
             os.system(f'rm -f {self.dlog}/*')
         else:
             os.makedirs(self.output)

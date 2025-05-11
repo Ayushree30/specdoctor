@@ -213,43 +213,32 @@ class Preprocessor:
         self.randLock.release()
 
         return ret
-    def extract_block(self, prg: str, blk: str) -> str:
-        path = f'{prg}.S'
-        print(f"[DEBUG] extract_block: Trying to open file: {path}")
-    
-        if not os.path.exists(path):
-            print(f"[ERROR] extract_block: File not found: {path}")
-            raise FileNotFoundError(f"Missing expected file: {path}")
-    
-        with open(path, 'r') as fd:
-            line = ''.join(fd.readlines())
-    
-        match = re.match(f'.({blk}:.{blk}.exit:).*', line, re.DOTALL)
-        if not match:
-            raise ValueError(f"[ERROR] extract_block: Could not match block '{blk}' in file {path}")
-    
-        tcLine = match.group(1) + '\n'
 
-        tc = [i for i in tcLine.split('\n')
-              if 'transient' not in i
-              and 'spdoc_check' not in i
-              and 'align' not in i]
-    
-        return '\n'.join(tc)
-
-    '''def extract_block(self, prg: str, blk: str) -> str:
-        with open(f'{prg}.S', 'r') as fd:
-            line = ''.join(fd.readlines())
-
-        match = re.match(f'.*({blk}:.*{blk}.exit:).*', line, re.DOTALL)
-        tcLine = match.group(1) + '\n'
-
-        tc = [i for i in tcLine.split('\n')
-              if 'transient' not in i
-              and 'spdoc_check' not in i
-              and 'align' not in i]
-
-        return '\n'.join(tc)'''
+    def extract_block(self, prg: str, block: str) -> str:
+        """Extract block from assembly file"""
+        # Try both with .S and .du.S extensions
+        paths_to_try = [f'{prg}.S', f'{prg}.du.S', prg]
+        
+        found_path = None
+        for path in paths_to_try:
+            if os.path.exists(path):
+                found_path = path
+                break
+                
+        if not found_path:
+            paths_str = ', '.join(paths_to_try)
+            print(f'[DEBUG] extract_block: None of the following files exist: {paths_str}')
+            raise FileNotFoundError(f"Missing expected files: tried {paths_str}")
+        
+        print(f'[DEBUG] extract_block: Reading file: {found_path}')
+        with open(found_path, 'r') as fd:
+            lines = fd.readlines()
+        
+        pattern = re.compile(f'^{block}:.*')
+        for i, line in enumerate(lines):
+            if pattern.match(line):
+                return ''.join(lines[i:])
+        return ''
 
     def compile(self, prg: str, atk: str, com: str, ent: int,
                 isa=0, spdoc=0) -> Optional[str]:
